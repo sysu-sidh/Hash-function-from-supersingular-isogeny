@@ -1,1 +1,510 @@
 # Hash-function-from-supersingular-isogeny
+
+
+////////////////////////////////////////////////////////////////////////////////
+//////////////////////////// Public parameters /////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+
+// Paramters defining the prime p = f*lA^eA - 1
+f:=1;
+lA:=2;
+eA:=521;
+
+
+// Define the prime p 
+p:=f*lA^eA-1;
+assert IsPrime(p: Proof:=false); 
+
+// Prime field of order p
+Fp:=GF(p); 
+// The quadratic extension via x^2 + 1 since p = 3 mod 4 
+Fp2<i>:=ExtensionField<Fp,x|x^2+1>;  
+
+// Bitlengths of group orders lA^eA , needed during the ladder
+// functions 
+eAbits:=eA;		
+
+// E0 is the starting curve E0/Fp2: y^2=x^3+x (the A=0 Montgomery curve)
+E0:=EllipticCurve([Fp2|1,0]);
+assert IsSupersingular(E0);
+
+// The orders of the points on each side
+oA:=lA^eA; 
+
+
+
+              
+
+
+
+
+
+////////////////////////////////////////////////////////////////////////////////
+///////////////////////// Arithmetic functions /////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+
+
+Selectpoints:=function(A, r);
+ /*
+    This function chooses two independet points P, Q  of order 2^n. 
+    
+    Input:
+    -A the curve parameters.
+    -An index r.
+
+
+    Output: 
+    - P=(x1,y1), Q=(x2, y2),r
+    */
+
+
+    u0:=Fp2!(1+i);
+    u:=Fp2!(2*i);
+    repeat
+      v:=1/(1+u*r^2);
+      x:=-A*v;
+      X:=Eltseq(x);
+      XX:=X[1]^2+X[2]^2;
+      In:=Ceiling((p+1)/4);
+      ZZ:=XX^In;
+      t:=x^2+A*x+1;
+      t:=x*t;
+      T:=Eltseq(t);
+      TT:=T[1]^2+T[2]^2;
+      
+      JJ:=TT^In;
+      if JJ^2 eq TT and ZZ^2 ne XX then
+     break;
+      end if;
+      r +:=1 ;
+    until false;
+      x1:=x;
+      h:=T[1]^2+T[2]^2 ;
+      m:=Sqrt(h);
+      z:=m+T[1];
+      z:=z/2;
+    if z^(2*In) ne z then
+      z:=T[1]-m;
+    end if;
+      z:=z/2;
+      a:=z^In;
+      b:=T[2]/(2*a);
+     if a^2 eq z then 
+      y1:=a+b*i;
+    else
+     y1:=-b+a*i;
+    end if;
+     x2:=u*r^2*x1;
+     y2:=u0*r*y1;
+     P:=[x1,y1];
+     Q:=[x2,y2];
+     return  [ x1,y1, x2, y2],r;
+end function;
+
+////////////////////////////////////////////////////////////////////////////////
+ 
+xdiff:=function(X,A)
+  /*
+    This function computes the x coordinates of P-Q when given two points P, Q . 
+    
+    Input: 
+
+    -Two points P and Q,
+    
+    -A the curve parameters.
+
+
+    Output: 
+    - xQP.
+    */
+
+       
+       
+        t0:=X[4]-X[2];
+        t1:=X[3]-X[1];
+        t:=t0/t1;
+        t:=t^2;
+        xQP:=t-A;
+        xQP:=xQP-X[3]-X[1];
+      return xQP;
+end function;
+        
+        
+      
+
+
+/////////////////////////////////////////////////////////////////////////////////
+
+xDBLADD:=function(XP,ZP,XQ,ZQ,xPQ,A24)
+
+	/*
+	Carries out a typical step in the Montgomery ladder: a simultaneous 
+    doubling and differential addition.
+	
+    Input: 
+    - The projective Montgomery x-coordinates of xP=XP/ZP and xQ=XQ/ZQ, 
+    - the affine difference x(P-Q) and 
+    - the Montgomery curve constant A24=(A+2)/4.
+
+	Output: 
+    - The projective Montgomery x-coordinates of x(2P)=X2P/Z2P and
+      x(Q+P)=XQP/ZQP.
+	*/
+        
+    X2P:=(XP+ZP)^2*(XP-ZP)^2;
+    Z2P:=4*XP*ZP*(4*A24*XP*ZP+XP^2-2*XP*ZP+ZP^2);
+    XQP:=4*(XP*XQ-ZP*ZQ)^2;
+    ZQP:=4*xPQ*(XP*ZQ-ZP*XQ)^2;
+    
+    return X2P,Z2P,XQP,ZQP;		//Total: 6M+4S+8a
+
+end function;
+
+////////////////////////////////////////////////////////////////////////////////
+
+xADD:=function(XP,ZP,XQ,ZQ,xPQ)
+
+	/*
+	Computes a standard Montgomery differential addition.
+ 
+	Input: 
+    - The projective Montgomery x-coordinates of xP=XP/ZP and xQ=XQ/ZQ, 
+    - and the affine difference x(P-Q).
+	
+    Output: 
+    - The projective Montgomery x-coordinates of x(Q+P)=XQP/ZQP.
+	*/
+
+    XQP:=(XP*XQ-ZP*ZQ)^2;
+    ZQP:=xPQ*(XP*ZQ-ZP*XQ)^2;
+
+    return XQP,ZQP;
+
+end function;
+
+////////////////////////////////////////////////////////////////////////////////
+
+xDBL:=function(X,Z,A24,C24)
+
+	/*
+	This is NOT the stereotypical Montgomery x-only doubling, since it assumes 
+    that the curve constant is projective.  
+
+	Input: 
+    - The projective Montgomery x-coordinates of xP=XP/ZP and 
+    - the Montgomery curve constant A24/C24 = (A/C+2)/4.
+	
+    Output: 
+    - The projective Montgomery x-coordinates of x(2P)=X2P/Z2P. 
+	*/
+
+    X2:=C24*(X-Z)^2*(X+Z)^2;
+    Z2:=4*(C24*X^2-2*C24*X*Z+C24*Z^2+4*A24*X*Z)*X*Z;
+
+	return X2,Z2;	
+
+end function;
+
+////////////////////////////////////////////////////////////////////////////////
+
+xDBLe:=function(XP,ZP,A,C,e)
+
+	/*
+	This just computes [2^e](X:Z) on the Montgomery curve with projective 
+    constant (A:C) via 2^e repeated doublings.
+  
+	Input: 
+    - The projective Montgomery x-coordinates of xP=XP/ZP and 
+    - the Montgomery curve constant A/C.
+	
+    Output: 
+    - The projective Montgomery x-coordinates of x(2^e*P)=XeP/ZeP. 
+	*/
+
+	A24num:=C+C;
+	A24den:=A24num+A24num;
+	A24num:=A24num+A;
+
+	XeP:=XP; ZeP:=ZP;
+
+	for i:=1 to e do
+		XeP,ZeP:=xDBL(XeP,ZeP,A24num,A24den);
+	end for;
+
+	return XeP,ZeP;   
+
+end function;
+
+////////////////////////////////////////////////////////////////////////////////
+
+
+
+
+
+
+
+
+
+LADDER_3_pt:=function(m,xP,xQ,xPQ,A)
+	
+	/*
+	This is Algorithm 1 of De Feo, Jao and Plut. It computes P+[m]Q via x-only 
+    arithmetic.
+	
+    Input: 
+    - The three affine points xP,xQ,xPQ (they are affine as they are compressed 
+      before transmission over the wire) and 
+    - the Montgomery constant A.
+	
+    Output: 
+    - The projective Montgomery x-coordinates of x(P+[m]Q)=WX/WZ. 
+	*/
+
+	bits:=IntegerToSequence(m,2);
+
+	A24num:=A+2;   //tailored for the special xDBL function
+	A24:=A24num/2;
+	A24:=A24/2; 
+    
+	UX:=1; UZ:=0;  // Initializing with point at infinity (1:0), 
+	VX:=xQ; VZ:=1; // (xQ:1) and
+	WX:=xP; WZ:=1; // (xP:1)
+
+        nbits:=eAbits;
+   
+
+    for i:=1 to (nbits-#bits) do
+			WX,WZ:=xADD(UX,UZ,WX,WZ,xP);
+			UX,UZ,VX,VZ:=xDBLADD(UX,UZ,VX,VZ,xQ,A24);
+    end for;
+
+	for i:=#bits to 1 by -1 do
+
+		if bits[i] eq 0 then
+			WX,WZ:=xADD(UX,UZ,WX,WZ,xP);
+			UX,UZ,VX,VZ:=xDBLADD(UX,UZ,VX,VZ,xQ,A24);
+		else
+			UX,UZ:=xADD(UX,UZ,VX,VZ,xQ);
+			VX,VZ,WX,WZ:=xDBLADD(VX,VZ,WX,WZ,xPQ,A24);
+		end if;
+
+	end for;
+
+	return WX,WZ;
+
+end function;
+//////////////////////////////////////////////////////////////////////////////////
+
+get_4_isog:=function(X4,Z4)
+	
+	/*
+	Given a projective point (X4:Z4) of order 4 on a Montgomery curve, this 
+    computes the corresponding 4-isogeny.
+
+	Input: 
+    - The projective point of order four (X4:Z4).
+
+	Output: 
+    - The 4-isogenous Montgomery curve with projective coefficient A/C and 
+      the 5 coefficients that are used to evaluate the isogeny at a point 
+      (see the next function).
+	*/
+
+    A:=4*X4^4-2*Z4^4;
+    C:=Z4^4;
+    coeff0:=2*X4*Z4;
+    coeff1:=X4^2+Z4^2;
+    coeff2:=X4^2-Z4^2;
+    coeff3:=X4^4;
+    coeff4:=Z4^4;
+
+	return A,C,[coeff0,coeff1,coeff2,coeff3,coeff4]; 
+
+end function;
+
+////////////////////////////////////////////////////////////////////////////////
+
+eval_4_isog:=function(coeff,X,Z)
+
+	/*
+	Given a 4-isogeny phi defined by the 5 coefficients in coeff (computed in 
+    the function get_4_isog), evaluates the isogeny at the point (X:Z) in the 
+    domain of the isogeny.
+
+	Input: 
+    - The coefficients defining the isogeny, and 
+    - the projective point P=(X:Z).
+
+	Output: 
+    - The projective point phi(P)=(X:Z) in the codomain. Variables are 
+      overwritten because they replace inputs in the routine.
+	*/
+
+    c:=coeff;
+
+    temp:=-(c[1]*X-c[2]*Z+c[3]*Z)^2
+          *(-c[5]*c[1]^2*X^2+2*c[5]*c[1]*X*c[2]*Z+2*c[5]*c[1]*X*c[3]*Z
+            -c[5]*c[2]^2*Z^2-2*c[5]*c[2]*Z^2*c[3]
+            -c[5]*c[3]^2*Z^2+c[4]*c[1]^2*X^2-2*c[4]*c[1]*X*c[2]*Z
+            +2*c[4]*c[1]*X*c[3]*Z+c[4]*c[2]^2*Z^2-2*c[4]*c[2]*Z^2*c[3]
+            +c[4]*c[3]^2*Z^2);              
+    Z:=4*c[5]*(c[1]*X-c[2]*Z-c[3]*Z)^2*(c[1]*X-c[2]*Z)*c[3]*Z;
+    X:=temp;
+
+	return X,Z;	
+	
+end function;
+
+////////////////////////////////////////////////////////////////////////////////
+
+first_4_isog:=function(X4,Z4,A)
+
+	/*
+	This is the very first 4-isogeny computed by Alice, which is different
+    from all subsequent 4-isogenies because the point (1,..) is already in the 
+    kernel, so it doesn't need composition with the preliminary isomorphism.
+    (See De Feo, Jao and Plut, Section 4.3).
+
+	Input: 
+    - The projective point (X4:Z4) and 
+    - the curve constant A (that is affine because it is passed over the wire 
+      or a fixed system parameter).
+  
+	Output: 
+    - The projective point (X4:Z4) in the codomain and
+    - the isogenous curve constant A/C. Variables are overwritten because they 
+      replace inputs in the routine.
+	*/
+
+    X:=(X4+Z4)^2*(A*X4*Z4+X4^2+Z4^2);
+    Z:=-X4*Z4*(A-2)*(X4-Z4)^2;
+    C:=A-2;
+    A:=2*A+12;
+
+	return X,Z,A,C;
+
+end function;
+
+
+
+
+
+
+////////////////////////////////////////////////////////////////////////////////
+
+fastpower:=function(SK,A,xP, xQ, xPQ)
+
+    /*
+    This function computes new curves when given two points P, Q and P-Q. 
+    
+    Input: 
+    - Alice's secret key SK, which is a random even number between 1 and 
+      oA-1,
+    -two points P and Q,
+    
+    -A the curve parameters.
+
+
+    Output: 
+    - EA.
+    */
+     C:=1;
+    // computes x(R)=(RX:RZ) via secret_pt function
+	RX,RZ:=LADDER_3_pt(SK,xP,xQ,xPQ,A);
+        isos:=0;
+        mulm:=0;
+
+
+ 
+   // the  first iteration is different so not in the main loop
+	RX,RZ,A,C:=first_4_isog(RX,RZ,A);
+        isos+:=1;
+
+       
+
+    
+
+    // The main loop
+
+    for e:=eA-4 to 0 by -2 do
+
+        
+	    SX,SZ:=xDBLe(RX,RZ,A,C,e);
+            mulm +:= e div 2;
+            
+
+    // compute the 4-isogeny based on kernel (RX:RZ)
+            A,C,consts:=get_4_isog(SX,SZ); 
+           
+        
+
+    // evaluate the 4-isogeny at RX,RZ (intermediate) points 
+ 
+		RX,RZ:=eval_4_isog(consts,RX,RZ); 
+
+    end for;
+
+           C:=1/C;
+           A:=A*C;
+           RZ:=1/RZ;
+           xR:=RX*RZ;
+           a1:=xR^2;
+           a1:=2*a1;
+           a1:=1-a1;
+           A:=a1+a1;
+
+	return A;
+
+end function;
+
+///////////////////////////////////////////////////////////////////////////////////
+
+
+hash:=function(m, A, r, k)
+
+/*The  function is to press a message of any length
+
+Input: 
+          A message m
+          An initial curve y^2=x^3+Ax^2+x
+          An index r
+          The number of blocks for the message :k  
+Output:
+           a  supersingular curve        */
+
+           r:=1;
+           A1:=A;
+           A2:=A;
+           A3:=A;
+
+         h:= IntegerToString(m);
+       for i :=1 to k by 1 do   
+            j:=(i-1)*(eA-1)+1;
+         
+           mi:=Substring(h,j, eA-1);
+         
+           
+           ni:=StringToInteger(mi, 2 );
+           
+           while A3  eq A1  do 
+                X, r  := Selectpoints(A2, r);
+               xP:=X[1];
+               xQ:=X[3];
+               xPQ:=xdiff(X,A2);
+               A3:=fastpower(ni,A2,xP, xQ, xPQ);
+               r:=r+1;
+           end while;
+           
+           A1:=A2;
+           
+           A2:=A3;
+           
+      
+     end for;
+  
+  
+	return A2;
+
+end function;   
+ eA:=521;
+ hash(100001000001101111110101111010100101001011011001101100111011110010010001011110000100010001111110101001110001111001001001110111011010001001111101111000010110100111011100010110111001000100101100101010000110100000011100111100101101111100011101000100111000100001011100001101010000011100011100010011000101100000000001001011101011110111011100001111100010001011001111000111010011010011001010100111010011001111110111011000110011110110110110110011111010000000110100001011100100110010001111000111011100001011011100011101011000110111010011101010101001110000100001000110101110101110000101111111001110011110011000000011001111000000100101001111001100110110110010011111100010110110011110001010111011110111011000101101100011011111110010011010101100001111101011001001110110011010001010110110100100010010011001001101110001001111001001000000011000000110100011101010110001010011010010001101001110101000010101000111000110001100110000111100010000111010010001010100001100100001000001011011101011110000110110010111110101011001100111011111101110001110100011100010000101010000000111111000011011100100011010101110111011110001011110110110010101000001111110100001010111001110111100101110101111001011100001111110011101001111101111010000111101100011000110011101111110100111111000100101111011010011100001100001011101110110001010011111100100111111100101110000000100011110100101001000001100110000110100111000011000010100011110111010000001000100110110111001101101010111010011100010111011111110100101010101101110000000000010110000111100000111100011010100000110100010001111010100100001011010100010, 6,1, 3)         
